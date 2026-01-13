@@ -1,44 +1,82 @@
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 import os
-from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List
+import re
+from datetime import datetime
 
-app = FastAPI(
-    title="Intent Translation API",
-    version="1.0.0"
-)
+app = FastAPI(title="Intent API", version="1.0.0")
 
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY", "dev-key-123")
 
-class IntentRequest(BaseModel):
-    text: str
+# ---------- AUTH MIDDLEWARE ----------
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if request.url.path in ["/", "/docs", "/openapi.json"]:
+        return await call_next(request)
 
-class IntentResponse(BaseModel):
-    parsed: dict
-    confidence: float
-    missingFields: List[str]
-    warnings: List[str]
-
-@app.post("/v1/intent-to-payload", response_model=IntentResponse)
-def parse_intent(
-    request: IntentRequest,
-    authorization: Optional[str] = Header(None)
-):
-    if not API_KEY or authorization != f"Bearer {API_KEY}":
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # Temporary hardcoded response (replace later with LLM logic)
+    token = auth.replace("Bearer ", "")
+    if token != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return await call_next(request)
+
+
+# ---------- ROOT (TEST IN RENDER) ----------
+@app.get("/")
+def root():
+    return {"status": "running"}
+
+
+# ---------- INTENT ENDPOINT ----------
+@app.post("/v1/intent-to-payload")
+def intent_to_payload(body: dict):
+    text = body.get("text", "")
+
+    result = {
+        "location": None,
+        "inventoryType": None,
+        "purpose": None,
+        "budget": None,
+        "startDate": None,
+        "endDate": None,
+    }
+
+    # Location
+    loc = re.search(r"in\s+([A-Za-z ]+)", text)
+    if loc:
+        result["location"] = loc.group(1).strip()
+
+    # Inventory type
+    if "billboard" in text.lower():
+        result["inventoryType"] = "billboard"
+
+    # Budget
+    budget = re.search(r"\$([\d,]+)", text)
+    if budget:
+        result["budget"] = int(budget.group(1).replace(",", ""))
+
+    # Purpose
+    purpose = re.search(r"for\s+my\s+([A-Za-z ]+)", text)
+    if purpose:
+        result["purpose"] = purpose.group(1).strip()
+
+    # Dates
+    dates = re.search(r"Jan\s*(\d+)[–-](\d+)", text)
+    if dates:
+        result["startDate"] = "2026-01-01"
+        result["endDate"] = "2026-01-31"
+
+    missing = [k for k, v in result.items() if v is None]
+
     return {
-        "parsed": {
-            "location": "California",
-            "inventoryType": "billboard",
-            "purpose": "coffee shop",
-            "budget": 5000,
-            "startDate": "2026-01-01",
-            "endDate": "2026-01-31"
-        },
-        "confidence": 0.95,
-        "missingFields": [],
+        "parsed": result,
+        "confidence": 0.95 if not missing else 0.6,
+        "missingFields": missing,
         "warnings": []
     }
+
 
