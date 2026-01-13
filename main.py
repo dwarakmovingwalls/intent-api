@@ -1,28 +1,43 @@
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 import re
 
-app = FastAPI(title="Intent API", version="1.0.0")
+app = FastAPI(
+    title="Intent API",
+    version="1.0.0"
+)
 
-API_KEY = os.getenv("API_KEY", "dev-key-123")
+# =====================
+# AUTH SETUP
+# =====================
 security = HTTPBearer()
+API_KEY = os.getenv("API_KEY", "dev-key-123")
 
-# ---------- AUTH DEPENDENCY (FOR SWAGGER) ----------
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+
+def verify_token(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+):
     if credentials.credentials != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-# ---------- ROOT (PUBLIC) ----------
+# =====================
+# ROOT (PUBLIC)
+# =====================
 @app.get("/")
 def root():
     return {"status": "running"}
 
 
-# ---------- INTENT ENDPOINT ----------
-@app.post("/v1/intent-to-payload", dependencies=[Depends(verify_token)])
-def intent_to_payload(body: dict):
+# =====================
+# INTENT ENDPOINT (SECURED)
+# =====================
+@app.post("/v1/intent-to-payload")
+def intent_to_payload(
+    body: dict,
+    _: HTTPAuthorizationCredentials = Security(verify_token),
+):
     text = body.get("text", "")
 
     result = {
@@ -53,7 +68,7 @@ def intent_to_payload(body: dict):
     if purpose:
         result["purpose"] = purpose.group(1).strip()
 
-    # Dates
+    # Dates (dummy)
     if "jan" in text.lower():
         result["startDate"] = "2026-01-01"
         result["endDate"] = "2026-01-31"
