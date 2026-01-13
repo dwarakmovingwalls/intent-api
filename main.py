@@ -1,17 +1,23 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
 import os
 import re
-from datetime import datetime
 
 app = FastAPI(title="Intent API", version="1.0.0")
 
 API_KEY = os.getenv("API_KEY", "dev-key-123")
 
+# ---------- PUBLIC PATHS ----------
+PUBLIC_PATHS = {"/", "/docs", "/openapi.json"}
+
 # ---------- AUTH MIDDLEWARE ----------
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if request.url.path in ["/", "/docs", "/openapi.json"]:
+    path = request.url.path.rstrip("/")
+
+    if path == "":
+        path = "/"
+
+    if path in PUBLIC_PATHS:
         return await call_next(request)
 
     auth = request.headers.get("Authorization")
@@ -64,7 +70,7 @@ def intent_to_payload(body: dict):
     if purpose:
         result["purpose"] = purpose.group(1).strip()
 
-    # Dates
+    # Dates (hardcoded for demo)
     dates = re.search(r"Jan\s*(\d+)[–-](\d+)", text)
     if dates:
         result["startDate"] = "2026-01-01"
@@ -78,5 +84,4 @@ def intent_to_payload(body: dict):
         "missingFields": missing,
         "warnings": []
     }
-
 
